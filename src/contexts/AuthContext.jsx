@@ -1,15 +1,24 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import { notify } from '@/lib/notifications'
+import { supabase } from '@/lib/supabase'
 
 const AuthContext = createContext(null)
 
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL
-const DEFAULT_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD
-const PASSWORD_KEY = 'vaultmind_admin_password'
 
-// Get current password (from localStorage if changed, else from .env)
-function getCurrentPassword() {
-  return localStorage.getItem(PASSWORD_KEY) || DEFAULT_PASSWORD
+async function getStoredPassword() {
+  const { data } = await supabase
+    .from('config')
+    .select('value')
+    .eq('key', 'admin_password')
+    .single()
+  return data?.value || import.meta.env.VITE_ADMIN_PASSWORD
+}
+
+async function setStoredPassword(newPassword) {
+  await supabase
+    .from('config')
+    .upsert({ key: 'admin_password', value: newPassword, updated_at: new Date().toISOString() })
 }
 
 export function AuthProvider({ children }) {
@@ -56,7 +65,8 @@ export function AuthProvider({ children }) {
       notify.loginFailed('Access denied. You are not authorized to log in.')
       return { error: 'Access denied' }
     }
-    if (password !== getCurrentPassword()) {
+    const storedPassword = await getStoredPassword()
+    if (password !== storedPassword) {
       notify.loginFailed('Invalid email or password.')
       return { error: 'Invalid password' }
     }
@@ -73,11 +83,12 @@ export function AuthProvider({ children }) {
   }, [])
 
   const changePassword = useCallback(async (currentPassword, newPassword) => {
-    if (currentPassword !== getCurrentPassword()) {
+    const storedPassword = await getStoredPassword()
+    if (currentPassword !== storedPassword) {
       notify.error('Incorrect Password', 'Your current password is wrong.')
       return { error: 'Wrong current password' }
     }
-    localStorage.setItem(PASSWORD_KEY, newPassword)
+    await setStoredPassword(newPassword)
     notify.passwordChanged()
     return { success: true }
   }, [])
